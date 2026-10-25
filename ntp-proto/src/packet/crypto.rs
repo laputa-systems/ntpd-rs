@@ -576,4 +576,44 @@ mod tests {
         let slice = &key_bytes[..AesSivCmac512::key_size()];
         assert_eq!(AesSivCmac512::try_from(slice).unwrap().key_bytes(), slice);
     }
+
+    #[test]
+    fn test_aes_siv_cmac_256_rejects_tampered_ciphertext() {
+        let mut testvec: Vec<u8> = (0..16).collect();
+        testvec.resize(testvec.len() + 32, 0);
+        let key = AesSivCmac256::new([0u8; 32].into());
+        let EncryptResult {
+            nonce_length,
+            ciphertext_length,
+        } = key.encrypt(&mut testvec, 16, &[]).unwrap();
+        testvec[nonce_length] ^= 0x01;
+        assert!(
+            key.decrypt(
+                &testvec[..nonce_length],
+                &testvec[nonce_length..(nonce_length + ciphertext_length)],
+                &[],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_aes_siv_cmac_512_rejects_tampered_ciphertext() {
+        let mut testvec: Vec<u8> = (0..16).collect();
+        testvec.resize(testvec.len() + 32, 0);
+        let key = AesSivCmac512::new([0u8; 64].into());
+        let EncryptResult {
+            nonce_length,
+            ciphertext_length,
+        } = key.encrypt(&mut testvec, 16, &[]).unwrap();
+        testvec[nonce_length + ciphertext_length - 1] ^= 0x01;
+        assert!(
+            key.decrypt(
+                &testvec[..nonce_length],
+                &testvec[nonce_length..(nonce_length + ciphertext_length)],
+                &[],
+            )
+            .is_err()
+        );
+    }
 }

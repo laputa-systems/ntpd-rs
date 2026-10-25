@@ -1867,4 +1867,131 @@ mod tests {
         assert_eq!(response, [0x80, 2, 0, 2, 0, 1, 0x80, 0, 0, 0]);
         assert!(server_res.is_err());
     }
+
+    #[tokio::test]
+    async fn test_nts_tls_parameters_and_exporter() {
+        use tokio::io::AsyncReadExt;
+
+        #[cfg(feature = "openssl")]
+        let _ = rustls_openssl::default_provider().install_default();
+
+        let (client_io, server_io) = tokio::io::duplex(8192);
+
+        let server = async move {
+            let certificate_chain = tls_utils::pemfile::certs(
+                &mut include_bytes!("../../test-keys/end.fullchain.pem").as_slice(),
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+            let private_key = tls_utils::pemfile::private_key(
+                &mut include_bytes!("../../test-keys/end.key").as_slice(),
+            )
+            .unwrap();
+            let mut server_config =
+                tls_utils::server_config_builder_with_protocol_versions(&[&TLS13])
+                    .with_no_client_auth()
+                    .with_single_cert(certificate_chain, private_key)
+                    .unwrap();
+            server_config.alpn_protocols = vec![b"ntske/1".to_vec()];
+            let acceptor = TlsAcceptor::from(Arc::new(server_config));
+            let mut tls = acceptor.accept(server_io).await.unwrap();
+            let connection = tls.get_ref().1;
+            assert_eq!(
+                connection.protocol_version(),
+                Some(rustls23::ProtocolVersion::TLSv1_3)
+            );
+            assert_eq!(connection.alpn_protocol(), Some(b"ntske/1".as_slice()));
+            let key =
+                super::extract_key_bytes::<[u8; 32], _>(connection, b"test-context").unwrap();
+            tls.read_exact(&mut [0u8; 1]).await.unwrap();
+            tls.write_all(&[1u8]).await.unwrap();
+            tls.flush().await.unwrap();
+            key
+        };
+
+        let client = async move {
+            let certificates = tls_utils::pemfile::certs(
+                &mut include_bytes!("../../test-keys/testca.pem").as_slice(),
+            )
+            .collect::<Result<Arc<_>, _>>()
+            .unwrap();
+            let builder = tls_utils::client_config_builder_with_protocol_versions(&[&TLS13]);
+            let verifier = tls_utils::PlatformVerifier::new_with_extra_roots(
+                certificates.iter().cloned(),
+                builder.crypto_provider().clone(),
+            )
+            .unwrap();
+            let mut tls_config = builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+            tls_config.alpn_protocols = vec![b"ntske/1".to_vec()];
+            let connector = TlsConnector::from(Arc::new(tls_config));
+            let mut tls = connector
+                .connect(ServerName::try_from("localhost").unwrap(), client_io)
+                .await
+                .unwrap();
+            let connection = tls.get_ref().1;
+            assert_eq!(
+                connection.protocol_version(),
+                Some(rustls23::ProtocolVersion::TLSv1_3)
+            );
+            assert_eq!(connection.alpn_protocol(), Some(b"ntske/1".as_slice()));
+            let key =
+                super::extract_key_bytes::<[u8; 32], _>(connection, b"test-context").unwrap();
+            tls.write_all(&[0u8]).await.unwrap();
+            tls.flush().await.unwrap();
+            tls.read_exact(&mut [0u8; 1]).await.unwrap();
+            key
+        };
+
+        let (server_key, client_key) = tokio::join!(server, client);
+        assert_eq!(server_key, client_key);
+    }
+
+    #[tokio::test]
+    async fn test_nts_system_roots_reject_test_ca() {
+        #[cfg(feature = "openssl")]
+        let _ = rustls_openssl::default_provider().install_default();
+
+        let (client_io, server_io) = tokio::io::duplex(8192);
+
+        let server = async move {
+            let certificate_chain = tls_utils::pemfile::certs(
+                &mut include_bytes!("../../test-keys/end.fullchain.pem").as_slice(),
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+            let private_key = tls_utils::pemfile::private_key(
+                &mut include_bytes!("../../test-keys/end.key").as_slice(),
+            )
+            .unwrap();
+            let mut server_config =
+                tls_utils::server_config_builder_with_protocol_versions(&[&TLS13])
+                    .with_no_client_auth()
+                    .with_single_cert(certificate_chain, private_key)
+                    .unwrap();
+            server_config.alpn_protocols = vec![b"ntske/1".to_vec()];
+            let acceptor = TlsAcceptor::from(Arc::new(server_config));
+            acceptor.accept(server_io).await
+        };
+
+        let client = async move {
+            let builder = tls_utils::client_config_builder_with_protocol_versions(&[&TLS13]);
+            let verifier =
+                tls_utils::PlatformVerifier::new(builder.crypto_provider().clone()).unwrap();
+            let mut tls_config = builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+            tls_config.alpn_protocols = vec![b"ntske/1".to_vec()];
+            let connector = TlsConnector::from(Arc::new(tls_config));
+            connector
+                .connect(ServerName::try_from("localhost").unwrap(), client_io)
+                .await
+        };
+
+        let (client_result, _server_result) = tokio::join!(client, server);
+        assert!(client_result.is_err());
+    }
 }

@@ -447,4 +447,27 @@ mod tests {
 
         assert!(output.is_err());
     }
+
+    #[test]
+    fn wrong_keyset_rejects_cookie() {
+        let decoded = DecodedServerCookie {
+            algorithm: AeadAlgorithm::AeadAesSivCmac256,
+            s2c: Box::new(AesSivCmac256::new((0..32_u8).collect())),
+            c2s: Box::new(AesSivCmac256::new((32..64_u8).collect())),
+        };
+
+        let keyset = KeySet {
+            keys: vec![AesSivCmac512::try_from(std::iter::repeat_n(0, 64)).unwrap()],
+            id_offset: 1,
+            primary: 0,
+        };
+        let other = KeySet {
+            keys: vec![AesSivCmac512::try_from(std::iter::repeat_n(1, 64)).unwrap()],
+            id_offset: 1,
+            primary: 0,
+        };
+
+        let encoded = keyset.encode_cookie(&decoded);
+        assert!(other.decode_cookie(&encoded).is_err());
+    }
 }
