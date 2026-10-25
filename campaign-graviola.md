@@ -222,12 +222,27 @@ Acceptance: the workflow runs the Graviola profile and rejects a contaminated de
 ### P6: Measure and close
 
 Item G6, size S. Prerequisite: G5. Workstreams: W1 and W2, integrated by the campaign coordinator.
-
 Measure the Graviola release binary with the same target, compiler, and profile used for the P0 baseline. Report byte size and the compiled dependency difference. Report build time only when the timing gate permits a comparable measurement. Do not optimize runtime or binary size unless parity and all required tests already pass.
 
 Run the complete relevant Linux x86_64 suite, the final Graviola closure check, existing provider builds, the Alpine operation check, and AArch64 cross-build. Reuse earlier evidence only when source, lockfile, feature set, target, environment, and scope still match. Run `ultrareview` on the changed scope and fix its P1 and P2 findings. Do not run formatters, push, or trigger remote CI.
 
 Acceptance: every required deliverable passes or is parked with a concrete external prerequisite. The final report distinguishes passed, unverified, and parked checks. Do not describe parked platform or interoperability proof as complete.
+
+### P7: Publish our own GitHub prereleases
+
+Item G7, size M. Prerequisite: G6. Owned files: `.github/workflows/prerelease.yml` and `Dockerfile` at the repository root.
+
+Add a manual-dispatch prerelease workflow named `prerelease.yml` (the fork-visible name) following the `~/d/repomod` binary-prerelease contract:
+
+- Refuse dispatches off the default branch with a preflight ref check, and recheck the ref before publication.
+- Build exactly the portable target set: `aarch64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`. Mention no glibc target in the workflow.
+- Build Linux targets in the pinned Alpine musl builder image defined by the new root `Dockerfile` (verified rustup archive, musl-linked LLVM, both musl targets, rust-src, musl-cargo wrapper, CRT stubs, `libutil.a`). Build the Graviola profile (`--no-default-features --features graviola,rustcrypto`) for the Linux targets.
+- Ship per-platform zip archives of the built binaries plus a verified `SHA256SUMS` file. Keep exactly one bare x86_64 and one bare aarch64 Linux ELF in the release job workspace so the `Verify Linux ELF artifacts are fully static` smoke step (copied verbatim) passes.
+- Create the `release-${{ github.sha }}` tag at the triggering commit through the GitHub API and publish with `gh release create --prerelease --verify-tag`.
+
+Register `laputa-systems/ntpd-rs` as `["tool", "rust", "fork"]` in the repomod catalog so the contract can be checked. Push the completed campaign branch and dispatch the workflow only for the owner-confirmed triggering commit.
+
+Acceptance: the repomod `binary-release-tags`, `binary-release-static`, and `rust-musl-image` rules pass for the new workflow and image, and the first prerelease is published with zips and a verified checksum file.
 
 ## Acceptance summary
 
@@ -244,12 +259,13 @@ Acceptance: every required deliverable passes or is parked with a concrete exter
 | CI regression protection | One Graviola x86_64 musl matrix entry and a package/target/feature-specific closure assertion |
 | Deployment documentation | Existing installation guide covers Alpine and OpenRC without systemd |
 | Final measurements | Exact build commands, binary byte sizes, and compiled dependency differences are reported |
+| Our own prereleases | Manual-dispatch `prerelease.yml` over the portable triple set, pinned Alpine musl builder image, per-platform zips with verified SHA256SUMS, SHA-derived tag with `--verify-tag` |
 
 ## Execution boundary and contract changes
 
-The campaign may edit Rust code, Cargo manifests and lockfile, tests, the existing checks workflow, and the existing installation guide. It may run local builds and tests in the isolated environments above. It may make local Conventional Commits because the source draft explicitly requested them.
+The campaign may edit Rust code, Cargo manifests and lockfile, tests, the existing checks workflow, the existing installation guide, the new prerelease workflow, and the new root Dockerfile. It may run local builds and tests in the isolated environments above. It may make local Conventional Commits because the source draft explicitly requested them. Item G7 additionally authorizes pushing the completed campaign branch and dispatching the prerelease workflow for the owner-confirmed triggering commit, plus the repomod catalog registration.
 
-The campaign must not push, trigger remote CI, publish or deploy packages, change the real host clock, change NTP or clock-discipline behavior, change configuration fields, add a general provider framework, add C-backed cryptography, or change the project's license policy. Park any work that would need those effects.
+The campaign must not publish or deploy packages, change the real host clock, change NTP or clock-discipline behavior, change configuration fields, add a general provider framework, add C-backed cryptography, or change the project's license policy. Outside item G7, it must not push or trigger remote CI. Park any work that would need those effects.
 
 Contract changes to report:
 
@@ -285,10 +301,13 @@ Decision log:
 - 2026-10-25: owner selected the current v2.0 alpha checkout. The draft's v1.9.0 base is superseded.
 - 2026-10-25: preflight retained default AWS-LC, RustCrypto, PPS, and secure SRV behavior. Graviola remains opt-in and its production profile excludes `srv`.
 - 2026-10-25: preflight prescribed explicit rustls provider propagation, RustCrypto packet crypto, no public Rust API changes, and compile-time TLS provider conflict checks.
+- 2026-10-25: owner stated performance is not a concern. Timings are recorded as environment facts only; no optimization passes and no timing-gate claims.
+- 2026-10-25: owner overrode the publish ban for GitHub prereleases. The campaign gains item G7: add our own GitHub prereleases conformant to the `~/d/repomod` binary-prerelease rules (manual dispatch, portable target matrix, per-platform zips, verified SHA256SUMS, SHA-derived tag, `--verify-tag`). Pushing and remote CI remain restricted to what G7 needs.
 
 Campaign log:
 
-- 2026-10-25: preflight completed. Source review and the warm dependency-tree check confirmed the current AWS-LC paths. No implementation, build, or test has started. G0 is next.
+- 2026-10-25: preflight completed. Source and warm dependency-tree check confirmed the current AWS-LC paths. No implementation, build, or test has started. G0 is next.
+- 2026-10-25: G0 baseline recorded on the base commit in disposable Linux containers. `cargo test --locked --target x86_64-unknown-linux-gnu -p ntp-proto -p ntpd`: ntp-proto 202 passed, ntpd 43 passed, ctl 2 passed with 5 pre-existing ignored (FIXME-marked reference/config tests), 0 failed, no inherited reds. `cargo build --locked --release --target x86_64-unknown-linux-musl -p ntpd`: pass; ntp-daemon 27141880 bytes, ntp-ctl 19702848 bytes. Default musl graph (378 lines) carries aws-lc-rs 1.18.1 and aws-lc-sys 0.45.0 through rustls and Hickory; the no-default `rustcrypto` graph has 183 packages with only benign `openssl-probe`. Emulated x86_64 exposes only `aes, pclmulqdq, ssse3` (no AVX/AVX2), so Graviola x86_64 code cannot execute there; aarch64 runner has all required flags. Timings are environment facts (emulation load), not gates.
 
 ## For the owner afterwards
 
