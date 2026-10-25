@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use hickory_resolver::{
     TokioResolver,
     net::NetError,
-    proto::rr::{IntoName, Name},
+    proto::rr::{IntoName, Name, RData, Record, rdata::SRV},
 };
 use tokio::net::lookup_host;
 
@@ -84,6 +84,21 @@ pub(crate) async fn resolve_ke(
 }
 
 #[cfg(feature = "srv")]
+fn secure_srv_records<'a>(
+    answers: impl Iterator<Item = &'a Record>,
+) -> impl Iterator<Item = &'a SRV> {
+    answers.filter_map(|record| {
+        if !record.proof.is_secure() {
+            return None;
+        }
+        match &record.data {
+            RData::SRV(srv) => Some(srv),
+            _ => None,
+        }
+    })
+}
+
+#[cfg(feature = "srv")]
 async fn resolve_srv<N: IntoName>(name: N) -> Result<Vec<Name>, NetError> {
     use crate::daemon::exitcode;
     use rand::Rng;
@@ -123,18 +138,7 @@ async fn resolve_srv<N: IntoName>(name: N) -> Result<Vec<Name>, NetError> {
     // that the item with weight m should appear before the item with weight n. (Note,
     // this can be checked by calculating the area under the implicit curve
     // x=t^(1/n), y=t^(1/m) in the unit square)
-    let mut items: Vec<_> = lookup_result
-        .answers()
-        .iter()
-        .filter_map(|record| {
-            if !record.proof.is_secure() {
-                return None;
-            }
-            match &record.data {
-                hickory_resolver::proto::rr::RData::SRV(srv) => Some(srv),
-                _ => None,
-            }
-        })
+    let mut items: Vec<_> = secure_srv_records(lookup_result.answers().iter())
         .map(|v| {
             (
                 if v.weight != 0 {
@@ -159,4 +163,69 @@ async fn resolve_srv<N: IntoName>(name: N) -> Result<Vec<Name>, NetError> {
     });
 
     Ok(items.into_iter().map(|v| &v.1.target).cloned().collect())
+}
+
+#[cfg(all(test, not(feature = "srv")))]
+mod direct_tests {
+    use std::net::SocketAddr;
+
+    use super::*;
+    use crate::daemon::config::NormalizedAddress;
+
+    #[tokio::test]
+    async fn no_srv_profile_resolves_direct_hostnames() {
+        let resolved: Vec<KeResolutionResult> =
+            resolve_ke(&NormalizedAddress::new_from_parts("127.0.0.1", 4460))
+                .await
+                .unwrap()
+                .collect();
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].addr,
+            SocketAddr::from(([127, 0, 0, 1], 4460))
+        );
+        assert_eq!(resolved[0].srv_record_name, None);
+    }
+}
+
+#[cfg(all(test, feature = "srv"))]
+mod tests {
+    use super::*;
+    use hickory_resolver::proto::{dnssec::Proof, rr::rdata::A};
+
+    fn srv_record(name: &str, priority: u16, proof: Proof) -> Record {
+        let mut record = Record::from_rdata(
+            Name::from_ascii(name).unwrap(),
+            60,
+            RData::SRV(SRV::new(
+                priority,
+                10,
+                4460,
+                Name::from_ascii("nts.example.com.").unwrap(),
+            )),
+        );
+        record.proof = proof;
+        record
+    }
+
+    #[test]
+    fn secure_srv_filter_accepts_secure_rejects_insecure() {
+        let secure = srv_record("secure.example.com.", 10, Proof::Secure);
+        let insecure = srv_record("insecure.example.com.", 5, Proof::Insecure);
+        let bogus = srv_record("bogus.example.com.", 1, Proof::Bogus);
+        let mut non_srv = Record::from_rdata(
+            Name::from_ascii("other.example.com.").unwrap(),
+            60,
+            RData::A(A::new(192, 0, 2, 1)),
+        );
+        non_srv.proof = Proof::Secure;
+
+        let targets: Vec<Name> =
+            secure_srv_records([&secure, &insecure, &bogus, &non_srv].into_iter())
+                .map(|srv| srv.target.clone())
+                .collect();
+
+        assert_eq!(targets, vec![Name::from_ascii("nts.example.com.").unwrap()]);
+    }
 }
