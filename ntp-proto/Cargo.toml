@@ -21,6 +21,7 @@ aws-lc = ["rustls23/aws-lc-rs", "rustls23/prefer-post-quantum"] # the latter als
 rustcrypto = ["dep:md-5", "dep:aead", "dep:aes-siv"]
 openssl = ["dep:rustls-openssl", "dep:openssl"]
 openssl-vendored = ["openssl", "rustls-openssl/vendored", "openssl/vendored"]
+graviola = ["dep:rustls-graviola"]
 __internal-fuzz = ["arbitrary", "__internal-api"]
 __internal-test = ["__internal-api"]
 __internal-api = []
@@ -29,6 +30,7 @@ __internal-api = []
 arbitrary = { workspace = true, optional = true }
 rand = { workspace = true, features = ["std", "std_rng"] }
 rustls23.workspace = true
+rustls-graviola = { workspace = true, optional = true }
 rustls-openssl = { workspace = true, optional = true }
 rustls-platform-verifier.workspace = true
 serde.workspace = true

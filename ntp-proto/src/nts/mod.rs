@@ -941,6 +941,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_keyexchange_untrusted_ca_fails() {
+        #[cfg(feature = "openssl")]
+        let _ = rustls_openssl::default_provider().install_default();
+
+        let (client, server) = tokio::io::duplex(2048);
+
+        let client = async move {
+            let kex = KeyExchangeClient::new(&NtsClientConfig {
+                certificates: Arc::new([]),
+                protocol_version: ProtocolVersion::V4,
+            })
+            .unwrap();
+            kex.exchange_keys(client, "localhost".into(), []).await
+        };
+
+        let server = async move {
+            let certificate_chain = tls_utils::pemfile::certs(
+                &mut include_bytes!("../../test-keys/end.fullchain.pem").as_slice(),
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+            let private_key = tls_utils::pemfile::private_key(
+                &mut include_bytes!("../../test-keys/end.key").as_slice(),
+            )
+            .unwrap();
+            let kex = KeyExchangeServer::new(NtsServerConfig {
+                certificate_chain,
+                private_key,
+                accepted_versions: vec![NtpVersion::V4],
+                server: None,
+                port: None,
+                pool_authentication_tokens: vec![],
+            })
+            .unwrap();
+            let keyset = KeySet::new();
+            kex.handle_connection(server, &keyset, || None::<()>).await
+        };
+
+        let (kexresult, _serverresult) = tokio::join!(client, server);
+        assert!(kexresult.is_err());
+    }
+
+    #[tokio::test]
     async fn test_keyexchange_roundtrip_v5() {
         #[cfg(feature = "openssl")]
         let _ = rustls_openssl::default_provider().install_default();

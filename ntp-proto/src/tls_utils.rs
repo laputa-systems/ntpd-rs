@@ -1,3 +1,18 @@
+#[cfg(all(feature = "graviola", feature = "aws-lc"))]
+compile_error!(
+    "the `graviola` TLS provider is mutually exclusive with `aws-lc`; enable exactly one TLS provider"
+);
+
+#[cfg(all(feature = "graviola", feature = "openssl"))]
+compile_error!(
+    "the `graviola` TLS provider is mutually exclusive with `openssl`; enable exactly one TLS provider"
+);
+
+#[cfg(not(any(feature = "aws-lc", feature = "openssl", feature = "graviola")))]
+compile_error!(
+    "no TLS provider selected; enable exactly one of the `aws-lc`, `openssl`, or `graviola` features"
+);
+
 mod rustls23_shim {
     pub use rustls23::ClientConfig;
     pub use rustls23::ClientConnection;
@@ -56,26 +71,75 @@ mod rustls23_shim {
 
     pub trait CloneKeyShim {}
 
-    pub fn client_config_builder()
-    -> rustls23::ConfigBuilder<rustls23::ClientConfig, rustls23::WantsVerifier> {
-        ClientConfig::builder()
+    #[cfg(feature = "graviola")]
+    fn tls_provider() -> std::sync::Arc<rustls23::crypto::CryptoProvider> {
+        std::sync::Arc::new(rustls_graviola::default_provider())
     }
 
+    /// Panics if the selected provider offers no usable cipher suite for the
+    /// default protocol versions, which cannot happen for the shipped providers.
+    pub fn client_config_builder()
+    -> rustls23::ConfigBuilder<rustls23::ClientConfig, rustls23::WantsVerifier> {
+        #[cfg(feature = "graviola")]
+        {
+            ClientConfig::builder_with_provider(tls_provider())
+                .with_safe_default_protocol_versions()
+                .unwrap()
+        }
+        #[cfg(not(feature = "graviola"))]
+        {
+            ClientConfig::builder()
+        }
+    }
+
+    /// Panics if the selected provider offers no usable cipher suite for the
+    /// requested protocol versions, which cannot happen for the shipped providers.
     pub fn client_config_builder_with_protocol_versions(
         versions: &[&'static rustls23::SupportedProtocolVersion],
     ) -> rustls23::ConfigBuilder<rustls23::ClientConfig, rustls23::WantsVerifier> {
-        ClientConfig::builder_with_protocol_versions(versions)
+        #[cfg(feature = "graviola")]
+        {
+            ClientConfig::builder_with_provider(tls_provider())
+                .with_protocol_versions(versions)
+                .unwrap()
+        }
+        #[cfg(not(feature = "graviola"))]
+        {
+            ClientConfig::builder_with_protocol_versions(versions)
+        }
     }
 
+    /// Panics if the selected provider offers no usable cipher suite for the
+    /// default protocol versions, which cannot happen for the shipped providers.
     pub fn server_config_builder()
     -> rustls23::ConfigBuilder<rustls23::ServerConfig, rustls23::WantsVerifier> {
-        ServerConfig::builder()
+        #[cfg(feature = "graviola")]
+        {
+            ServerConfig::builder_with_provider(tls_provider())
+                .with_safe_default_protocol_versions()
+                .unwrap()
+        }
+        #[cfg(not(feature = "graviola"))]
+        {
+            ServerConfig::builder()
+        }
     }
 
+    /// Panics if the selected provider offers no usable cipher suite for the
+    /// requested protocol versions, which cannot happen for the shipped providers.
     pub fn server_config_builder_with_protocol_versions(
         versions: &[&'static rustls23::SupportedProtocolVersion],
     ) -> rustls23::ConfigBuilder<rustls23::ServerConfig, rustls23::WantsVerifier> {
-        ServerConfig::builder_with_protocol_versions(versions)
+        #[cfg(feature = "graviola")]
+        {
+            ServerConfig::builder_with_provider(tls_provider())
+                .with_protocol_versions(versions)
+                .unwrap()
+        }
+        #[cfg(not(feature = "graviola"))]
+        {
+            ServerConfig::builder_with_protocol_versions(versions)
+        }
     }
 }
 

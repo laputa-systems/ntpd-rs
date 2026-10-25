@@ -12,6 +12,21 @@
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::unreadable_literal)]
 
+#[cfg(all(feature = "graviola", feature = "aws-lc"))]
+compile_error!(
+    "the `graviola` TLS provider is mutually exclusive with `aws-lc`; enable exactly one TLS provider"
+);
+
+#[cfg(all(feature = "graviola", feature = "openssl"))]
+compile_error!(
+    "the `graviola` TLS provider is mutually exclusive with `openssl`; enable exactly one TLS provider"
+);
+
+#[cfg(not(any(feature = "aws-lc", feature = "openssl", feature = "graviola")))]
+compile_error!(
+    "no TLS provider selected; enable exactly one of the `aws-lc`, `openssl`, or `graviola` features"
+);
+
 mod ctl;
 mod daemon;
 mod force_sync;
