@@ -76,7 +76,6 @@ Below are configurations for Linux (using `SystemD`) and FreeBSD (using a .rc fi
 #### Linux + SystemD
 
 This is the SystemD configuration used by the ntpd-rs Linux installer.
-
 ```ini
 [Unit]
 Description=Rust Network Time Service
@@ -115,6 +114,84 @@ This user must have access to the configuration folder:
 ```sh
 sudo chown ntpd-rs:ntpd-rs /etc/ntpd-rs/ntp.toml
 sudo chmod 0644 /etc/ntpd-rs/ntp.toml
+```
+
+#### Alpine Linux + OpenRC (Graviola, no C-backed cryptography)
+
+On Alpine, build the opt-in Graviola profile. It performs NTS-KE with
+Graviola instead of AWS-LC, ring, or OpenSSL, so the resulting binaries
+have no C-backed cryptography dependency. The profile keeps normal
+hostname lookup and direct NTS connections, but it does not do NTS SRV
+lookup. It needs Rust 1.95 or newer.
+
+```sh
+cargo build --locked --release -p ntpd \
+  --target x86_64-unknown-linux-musl \
+  --no-default-features --features graviola,rustcrypto
+```
+
+For AArch64 replace the target with `aarch64-unknown-linux-musl`.
+On glibc hosts the musl target needs a musl linker (for example the
+`musl-tools` package); on Alpine itself the regular `build-base` toolchain
+is enough. Graviola only runs on CPUs with its required instructions.
+On x86_64 those are `aes`, `ssse3`, `avx`, `avx2`, `adx`, `bmi2`, and
+`pclmulqdq`, on AArch64 `aes`, `sha2`, `pmull`, and `neon`. Check with,
+for example:
+
+```sh
+grep -o -E 'aes|ssse3|avx|avx2|adx|bmi2|pclmulqdq' /proc/cpuinfo | sort -u
+```
+
+Copy the built `ntp-daemon` and `ntp-ctl` binaries to `/usr/bin`.
+For NTS with publicly trusted servers, install the system CA certificates:
+
+```sh
+sudo apk add ca-certificates
+```
+
+Place the configuration in `/etc/ntpd-rs/ntp.toml` (see
+`docs/examples/conf/ntp.toml.default` for a starting point). For an NTS
+source with a private CA, add the CA file from
+[`certificate-authority`](./nts.md) to the server and reference it in the
+source. The daemon needs the clock-setting capability to discipline the
+clock when it runs as a service.
+
+Use the following OpenRC service as `/etc/init.d/ntpd-rs`:
+
+```sh
+#!/sbin/openrc-run
+
+description="ntpd-rs network time daemon"
+command="/usr/bin/ntp-daemon"
+command_args="-c /etc/ntpd-rs/ntp.toml"
+pidfile="/run/ntpd-rs/ntp-daemon.pid"
+command_background=true
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner ntpd-rs:ntpd-rs --mode 0755 /var/run/ntpd-rs
+	checkpath --file --owner ntpd-rs:ntpd-rs --mode 0644 /etc/ntpd-rs/ntp.toml
+}
+```
+
+Create the service user, stop any competing clock daemon first (Alpine
+ships BusyBox `ntpd` by default), then start and enable the service:
+
+```sh
+sudo addgroup -S ntpd-rs
+sudo adduser -S -h /var/lib/ntpd-rs -G ntpd-rs ntpd-rs
+sudo chown ntpd-rs:ntpd-rs /etc/ntpd-rs/ntp.toml
+sudo chmod 0644 /etc/ntpd-rs/ntp.toml
+sudo rc-service ntpd stop
+sudo rc-update del ntpd
+sudo rc-service ntpd-rs start
+sudo rc-update add ntpd-rs default
+sudo rc-service ntpd-rs status
+sudo ntp-ctl status
 ```
 
 #### FreeBSD

@@ -54,6 +54,12 @@ jobs:
           # Stable on x86_64 Linux gnu with different featuresets
           - rust: "stable"
             runs_on: ubuntu-latest
+            features: "--no-default-features --features graviola,rustcrypto"
+            target: "x86_64-unknown-linux-musl"
+
+          # Stable on x86_64 Linux gnu with different featuresets
+          - rust: "stable"
+            runs_on: ubuntu-latest
             features: "--no-default-features --features rustcrypto,aws-lc"
             target: "x86_64-unknown-linux-gnu"
           - rust: "stable"
@@ -98,7 +104,7 @@ jobs:
           # Stable on x86_64 Linux gnu/musl with seccomp filtering
           - rust: stable
             runs_on: ubuntu-latest
-            features: "--all-features"
+            features: "--features all-portable,seccomp"
             target: "x86_64-unknown-linux-gnu"
     steps:
       - name: Checkout sources
@@ -164,6 +170,19 @@ jobs:
 
       - name: cargo build
         run: cargo --locked build --workspace --target ${{matrix.target}} ${{ matrix.features }}
+
+      - name: Reject C-backed cryptography in the Graviola profile
+        if: ${{ matrix.features == '--no-default-features --features graviola,rustcrypto' }}
+        run: |
+          tree=$(cargo tree --locked --prefix none -p ntpd \
+            --target x86_64-unknown-linux-musl \
+            --no-default-features --features graviola,rustcrypto \
+            --edges normal,build)
+          if printf '%s\n' "$tree" | grep -Eq '(^| )(aws-lc-rs|aws-lc-sys|ring|openssl|openssl-sys) v'; then
+            printf '%s\n' "$tree" >&2
+            echo 'Graviola profile contains C-backed cryptography' >&2
+            exit 1
+          fi
 
       - name: cargo test
         run: cargo --locked llvm-cov --no-clean --workspace --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
