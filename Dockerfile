@@ -39,12 +39,12 @@ RUN case "$TARGETARCH" in \
     esac \
     && archive=/ntpd-rs/.work/tmp/llvm.tar.xz \
     && mkdir -p /ntpd-rs/.work/tmp \
-    && for attempt in 1 2 3; do \
-           wget -O "$archive" "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-${arch}-linux-musl.tar.xz?cbust=1" \
+    && for attempt in 1 2 3 4 5; do \
+           wget --timeout=60 --tries=1 -O "$archive" "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-${arch}-linux-musl.tar.xz?cbust=1" \
                && echo "$sum  $archive" | sha256sum -c - && break; \
            echo "LLVM download attempt $attempt failed, retrying" >&2; \
-           sleep 2; \
-           [ "$attempt" -lt 3 ] || exit 1; \
+           sleep 5; \
+           [ "$attempt" -lt 5 ] || exit 1; \
        done \
     && mkdir -p /opt/llvm-musl \
     && tar xf "$archive" -C /opt/llvm-musl --strip-components=1 \
@@ -65,12 +65,12 @@ RUN case "$TARGETARCH" in \
         *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac \
     && init=/ntpd-rs/.work/tmp/rustup-init \
-    && for attempt in 1 2 3; do \
-           wget -O "$init" "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${arch}-unknown-linux-musl/rustup-init?cbust=1" \
+    && for attempt in 1 2 3 4 5; do \
+           wget --timeout=60 --tries=1 -O "$init" "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${arch}-unknown-linux-musl/rustup-init?cbust=1" \
                && echo "$sum  $init" | sha256sum -c - && break; \
            echo "rustup download attempt $attempt failed, retrying" >&2; \
-           sleep 2; \
-           [ "$attempt" -lt 3 ] || exit 1; \
+           sleep 5; \
+           [ "$attempt" -lt 5 ] || exit 1; \
        done \
     && chmod +x "$init" \
     && "$init" -y --default-toolchain none \
