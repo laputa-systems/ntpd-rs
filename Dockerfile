@@ -29,6 +29,8 @@ RUN apk add --no-cache \
 # glibc runtime dependency.
 RUN ar rcs /usr/lib/libutil.a
 
+# The `?cbust=1` query strings below defeat poisoned CDN cache entries:
+# same versioned object, fresh cache key. Checksums still pin every byte.
 # LLVM tools must be musl-linked to run in this Alpine image.
 RUN case "$TARGETARCH" in \
         amd64) arch=x86_64; sum=36647cca0bf57d206a6ce757d07a9d8489ef6ccf283a2cc7f740d1cba99a088b ;; \
@@ -38,7 +40,7 @@ RUN case "$TARGETARCH" in \
     && archive=/ntpd-rs/.work/tmp/llvm.tar.xz \
     && mkdir -p /ntpd-rs/.work/tmp \
     && for attempt in 1 2 3; do \
-           wget -O "$archive" "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-${arch}-linux-musl.tar.xz" \
+           wget -O "$archive" "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-${arch}-linux-musl.tar.xz?cbust=1" \
                && echo "$sum  $archive" | sha256sum -c - && break; \
            echo "LLVM download attempt $attempt failed, retrying" >&2; \
            sleep 2; \
@@ -64,7 +66,7 @@ RUN case "$TARGETARCH" in \
     esac \
     && init=/ntpd-rs/.work/tmp/rustup-init \
     && for attempt in 1 2 3; do \
-           wget -O "$init" "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${arch}-unknown-linux-musl/rustup-init" \
+           wget -O "$init" "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${arch}-unknown-linux-musl/rustup-init?cbust=1" \
                && echo "$sum  $init" | sha256sum -c - && break; \
            echo "rustup download attempt $attempt failed, retrying" >&2; \
            sleep 2; \
