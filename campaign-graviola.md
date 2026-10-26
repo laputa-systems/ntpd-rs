@@ -313,6 +313,67 @@ Campaign log:
 - 2026-10-26: G3 parity and provider regression complete. New coverage, all provider-agnostic and running in every profile: TLS 1.3 version plus exact `ntske/1` ALPN asserted on both ends of a raw handshake with matching exporter keys (`test_nts_tls_parameters_and_exporter`); system-trust verifier rejects the test CA while custom-CA trust succeeds; cookie decode with the wrong keyset fails; tampered AES-SIV ciphertexts rejected for both key sizes. Full suites on the required x86_64 Linux target: default (ntp-proto 208, ntpd 44), explicit AWS-LC (208, 43), OpenSSL vendored (209, 43) — all green, including the Darwin-timing-flaky `key_exchange_connection_limiter`. Deterministic Graviola suites pass on host and on aarch64 Linux (ntp-proto 208, ntpd 43). x86_64 Graviola execution is impossible here: graviola 0.4.1 aborts with `requires bmi1 CPU support` under emulation, so that runtime proof is parked pending real AVX2 hardware; aarch64 Linux is the Linux runtime proof. Local Chrony 4.5 interop against the scratch harness (Graviola KE + NTS NTP, `.work/tmp/nts-interop`, not committed) succeeded: `authdata` shows mode NTS, AEAD 15, 8 cookies, source selected at stratum 3 with microsecond offsets. Conflict builds fail as specified.
 - 2026-10-26: G4 musl and Alpine proof complete with documented parks. x86_64 musl release build passes (ntp-daemon 26416928, ntp-ctl 18775912 bytes). AArch64 musl release build passes natively (27003056, 18648736 bytes). Ordinary musl linker requirement is only `musl-gcc` (or an Alpine builder); no C cryptography involved. In Alpine 3.23 (aarch64, default Docker caps without `CAP_SYS_TIME`): the musl binaries start; direct hostname resolution plus custom-CA NTS verification passes against the local harness server; system-CA verification passes with the test CA installed as a system anchor. The start-without-`CAP_SYS_TIME` run is parked: this alpha unconditionally issues an `adjtimex` write at startup (strace shows a bare read succeeding, then a write failing `EPERM`), so the daemon cannot start cap-less; the OpenRC run used `--cap-add SYS_TIME` with unreachable-only sources, and host wall time advanced normally with no discipline. `ntp-ctl status` is parked: the observer spawn is commented out (`daemon/mod.rs`), so no observe socket exists in this alpha (`validate` works). The `minimum-agreeing-sources` field and `[[server]] listen` do not exist in this alpha (`NtpServerConfig` is empty, no server spawn wiring), so the run uses unreachable-only sources and the OpenRC `start-stop-daemon --background` pattern. Public-endpoint system-CA check parked: no egress to TCP 4460. x86_64 container run parked: emulated CPU lacks AVX2 (graviola aborts). OpenRC `start`/`status` validated in-container; `ntpd-rs` user/group creation included.
 - 2026-10-26: G5 CI guard and Alpine instructions complete. `checks.yaml` gains an x86_64 musl Graviola matrix entry with a dependency-closure assertion step that fails on any `aws-lc-rs`, `aws-lc-sys`, `ring`, `openssl`, or `openssl-sys` package; the invalid `--all-features` seccomp entry is now `--features all-portable,seccomp`; metadata-only `cargo-deny --all-features` checks unchanged. The installation guide covers the Alpine/OpenRC Graviola flow: build command, Rust 1.95 MSRV, musl linker and CPU-flag requirements, binary and CA-certificate install, NTS config files, the validated OpenRC service, and BusyBox `ntpd` removal.
+- 2026-10-26: G6 measured and closed. Post-change default x86_64 musl release build passes (ntp-daemon 27113952 bytes, no regression vs 27141880 baseline). Final Graviola closure check is clean and unchanged. `ultrareview` is not installed in this environment, so its P1/P2 pass is unverified; no other review findings are open. No formatters, pushes, or remote CI were run. G7 prereleases remain: workflow and image are specified in the campaign but not yet implemented; push and dispatch await the owner-confirmed triggering commit.
+
+## Final report
+
+Profile under test: `--no-default-features --features graviola,rustcrypto`.
+Toolchain 1.99.1 everywhere; MSRV 1.95 verified with
+`cargo +1.95.0 check --locked -p ntpd --target x86_64-unknown-linux-musl --no-default-features --features graviola,rustcrypto`.
+Timings omitted: the host was under emulation load throughout, and
+performance is out of scope for this campaign.
+
+Passed builds (all `--locked`, release):
+
+| Command | Result | ntp-daemon bytes | ntp-ctl bytes |
+| --- | --- | --- | --- |
+| `cargo build --locked --release --target x86_64-unknown-linux-musl -p ntpd` (default, G0 baseline) | pass | 27141880 | 19702848 |
+| same, Graviola profile | pass | 26416928 | 18775912 |
+| same, default profile, post-change | pass | 27113952 | — |
+| `cargo build --locked --release --target aarch64-unknown-linux-musl -p ntpd`, Graviola profile | pass | 27003056 | 18648736 |
+
+Compiled dependency difference (default musl graph vs Graviola musl graph,
+`--edges normal,build`, 378 lines vs 190 lines, 167 vs 88 unique packages):
+removed the Hickory DNSSEC stack (`hickory-resolver`, `hickory-net`,
+`hickory-proto` plus `idna`/`url`/ICU), the AWS-LC stack (`aws-lc-rs`,
+`aws-lc-sys` plus C-toolchain helpers `cc`, `cmake`, `jobserver`,
+`fs_extra`, `dunce`, `shlex`), `pps-time`, and associated caches;
+added only `rustls-graviola 0.4.0` and `graviola 0.4.1` (plus
+`getrandom 0.3.4` alongside the already-present 0.2/0.4 lines).
+Resolved licenses stay inside policy (`Apache-2.0` alternative present;
+no policy widening). No C-toolchain packages remain in the Graviola graph.
+
+Passed suites (all `--locked`, exit 0):
+
+| Command | ntp-proto | ntpd |
+| --- | --- | --- |
+| `--target x86_64-unknown-linux-gnu -p ntp-proto -p ntpd` (default) | 208 | 44 |
+| same, `--no-default-features --features rustcrypto,aws-lc` | 208 | 43 |
+| same, `--no-default-features --features openssl-vendored` | 209 | 43 |
+| `-p ntp-proto -p ntpd --no-default-features --features graviola,rustcrypto` on aarch64 Linux | 208 | 43 |
+| `-p ntp-proto` Graviola on Darwin arm64 | 208 | — |
+| `-p ntpd` Graviola on Darwin arm64 | — | 42 + direct-DNS test |
+| NTS-KE roundtrip, untrusted-CA rejection, TLS 1.3 + `ntske/1` + exporter agreement on both ends, system-trust rejection of the test CA, wrong-keyset cookie rejection, tampered-ciphertext rejection | | pass in every profile above |
+| Chrony 4.5 against the scratch harness (Graviola KE + NTS NTP) | `authdata`: mode NTS, AEAD 15, 8 cookies; source selected, stratum 3, microsecond offsets | pass |
+| Alpine 3.23 aarch64 musl: `ntp-ctl validate`, daemon under OpenRC (`start`/`status`), direct-hostname + custom-CA NTS, system-store CA path | | pass |
+
+Conflict builds fail at compile time with a clear diagnostic:
+`graviola` with `aws-lc`, `graviola` with `openssl`, and empty provider
+sets, in both `ntp-proto` and `ntpd`.
+
+Parked, each with a concrete external prerequisite:
+
+- x86_64 Graviola runtime: emulated CPU lacks BMI1/AVX2 (`graviola requires bmi1 CPU support`); needs real x86_64 hardware with `aes, ssse3, avx, avx2, adx, bmi2, pclmulqdq`.
+- Daemon start without `CAP_SYS_TIME`: this alpha issues an `adjtimex` write unconditionally at startup (`EPERM` is fatal); needs either the capability or a no-write startup path.
+- `ntp-ctl status` against the daemon: observer spawn is commented out, so no observe socket exists; needs the observer wiring.
+- `minimum-agreeing-sources`, `[[server]] listen`, NTP serving, and the NTS-daemon source path: fields and wiring absent in this alpha; runs used unreachable-only sources.
+- System-CA check against a public NTS endpoint: no egress to TCP 4460 from here; the system-store path itself is proven with a local anchor.
+- G7 prereleases: specified, not implemented; push and dispatch await the owner-confirmed triggering commit.
+
+Unverified: the `ultrareview` P1/P2 pass (`ultrareview` is not installed
+in this environment). Inherited, not a regression: `key_exchange_connection_limiter`
+times out on the loaded Darwin host (fails identically on the clean base;
+passes on Linux x86_64).
 
 ## For the owner afterwards
 
