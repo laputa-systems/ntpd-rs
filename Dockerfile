@@ -22,7 +22,8 @@ RUN apk add --no-cache \
     musl-dev \
     libgcc \
     git \
-    tzdata
+    tzdata \
+    zip
 
 # rustix requests libutil for Unix PTY support; musl provides those symbols in
 # libc, so an empty archive satisfies the legacy library name without adding a

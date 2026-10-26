@@ -149,14 +149,14 @@ jobs:
                 "target/${{ matrix.target }}/release/ntp-ctl" \
                 "target/${{ matrix.target }}/release/ntp-metrics-exporter" \
                 "out/ntpd-rs-${{ matrix.target }}/"
+              (
+                cd "out/ntpd-rs-${{ matrix.target }}" && \
+                zip -9 --junk-paths \
+                  "ntpd-rs-${{ matrix.target }}.zip" \
+                  ntp-daemon ntp-ctl ntp-metrics-exporter && \
+                rm ntp-ctl ntp-metrics-exporter
+              )
             '
-          (
-            cd "out/ntpd-rs-${{ matrix.target }}" && \
-            zip -9 --junk-paths \
-              "ntpd-rs-${{ matrix.target }}.zip" \
-              ntp-daemon ntp-ctl ntp-metrics-exporter && \
-            rm ntp-ctl ntp-metrics-exporter
-          )
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ntpd-rs-${{ matrix.target }}
