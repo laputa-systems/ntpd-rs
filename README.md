@@ -8,6 +8,8 @@
 
 ntpd-rs is a tool for synchronizing your computer's clock, implementing the NTP and NTS protocols. It is written in Rust, with a focus on security and stability. It includes both client and server support.
 
+This git checkout is the laputa-systems fork. The install and status steps below are for Pendulum's packages, not for binaries built from this tree. What this tree runs is in `AGENTS.md`.
+
 If a feature you need is missing please let us know by opening an issue.
 
 ## Documentation

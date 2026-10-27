@@ -39,29 +39,14 @@ ntpd-rs run
 cargo build --release
 ```
 
-This produces a `ntp-daemon` binary at `target/release/ntp-daemon`, which is the
-main NTP daemon. Running it from the command line to test it should provide output like:
+This produces `ntp-daemon` at `target/release/ntp-daemon`. In this checkout
+that binary rejects `docs/examples/conf/ntp.toml.default`, because
+`[synchronization]` is not a field of `Config`, and it panics on
+`mode = "nts"`. Do not install it as the system clock. The Graviola build
+is below. `AGENTS.md` lists the other limits.
 
-```
-> sudo target/release/ntp-daemon -c pkg/common/ntp.toml.default
-2023-09-04T12:01:44.055104Z  WARN ntpd::daemon::observer: Abnormal termination of the state observer: Could not create observe socket at "/run/ntpd-rs/observe" because its parent directory does not exist
-2023-09-04T12:01:44.055183Z  WARN ntpd::daemon::observer: The state observer will not be available
-2023-09-04T12:01:44.071353Z  INFO ntpd::daemon::system: new source source_id=SourceId(1) addr=185.172.91.110:123 spawner=SpawnerId(1)
-2023-09-04T12:01:44.071735Z  INFO ntpd::daemon::system: new source source_id=SourceId(2) addr=162.159.200.1:123 spawner=SpawnerId(1)
-2023-09-04T12:01:44.071944Z  INFO ntpd::daemon::system: new source source_id=SourceId(3) addr=45.138.55.62:123 spawner=SpawnerId(1)
-2023-09-04T12:01:44.072150Z  INFO ntpd::daemon::system: new source source_id=SourceId(4) addr=213.154.236.182:123 spawner=SpawnerId(1)
-2023-09-04T12:01:44.084626Z  INFO ntp_proto::algorithm::kalman: No consensus cluster found
-2023-09-04T12:01:44.085422Z  INFO ntp_proto::algorithm::kalman: No consensus cluster found
-2023-09-04T12:01:44.086879Z  INFO ntp_proto::algorithm::kalman: Offset: 2.3686082232975885+-72.6249392570874ms, frequency: 0+-5773502.691896258ppm
-2023-09-04T12:01:44.087846Z  INFO ntp_proto::algorithm::kalman: Offset: 2.7204471636925773+-61.339759726948046ms, frequency: 0+-5000000.000000001ppm
-```
-
-To use this binary as your system NTP daemon, you must also:
-
-- move the `ntp-daemon` binary to an appropriate location (e.g. `/usr/bin`),
-- set up a configuration in `/etc/ntpd-rs/ntp.toml` (we suggest copying the configuration under `docs/examples/conf/ntp.toml.default`),
-- set permissions for the binary and config file for the binary to be able to run and read the configuration,
-- configure the binary to be run as a system service.
+The unit and rc scripts further down are for Pendulum's packaged daemon.
+They do not apply to a binary built from this checkout.
 
 ### Running as a system service
 
@@ -116,13 +101,12 @@ sudo chown ntpd-rs:ntpd-rs /etc/ntpd-rs/ntp.toml
 sudo chmod 0644 /etc/ntpd-rs/ntp.toml
 ```
 
-#### Alpine Linux + OpenRC (Graviola, no C-backed cryptography)
+#### Graviola profile (not a system service)
 
-On Alpine, build the opt-in Graviola profile. It performs NTS-KE with
-Graviola instead of AWS-LC, ring, or OpenSSL, so the resulting binaries
-have no C-backed cryptography dependency. The profile keeps normal
-hostname lookup and direct NTS connections, but it does not do NTS SRV
-lookup. It needs Rust 1.95 or newer.
+Build the profile that links NTS-KE to Graviola instead of AWS-LC, ring,
+or OpenSSL. It needs Rust 1.95 or newer. It has no `srv` feature.
+Do not install the binary as a clock service. `mode = "nts"` panics, and
+the sample config does not load.
 
 ```sh
 cargo build --locked --release -p ntpd \
@@ -130,69 +114,13 @@ cargo build --locked --release -p ntpd \
   --no-default-features --features graviola,rustcrypto
 ```
 
-For AArch64 replace the target with `aarch64-unknown-linux-musl`.
-On glibc hosts the musl target needs a musl linker (for example the
-`musl-tools` package); on Alpine itself the regular `build-base` toolchain
-is enough. Graviola only runs on CPUs with its required instructions.
-On x86_64 those are `aes`, `ssse3`, `avx`, `avx2`, `adx`, `bmi2`, and
-`pclmulqdq`, on AArch64 `aes`, `sha2`, `pmull`, and `neon`. Check with,
-for example:
+For AArch64 use `aarch64-unknown-linux-musl`. On glibc hosts the musl
+target needs a musl linker (`musl-tools` on Debian). On Alpine,
+`build-base` is enough.
 
-```sh
-grep -o -E 'aes|ssse3|avx|avx2|adx|bmi2|pclmulqdq' /proc/cpuinfo | sort -u
-```
-
-Copy the built `ntp-daemon` and `ntp-ctl` binaries to `/usr/bin`.
-For NTS with publicly trusted servers, install the system CA certificates:
-
-```sh
-sudo apk add ca-certificates
-```
-
-Place the configuration in `/etc/ntpd-rs/ntp.toml` (see
-`docs/examples/conf/ntp.toml.default` for a starting point). For an NTS
-source with a private CA, add the CA file from
-[`certificate-authority`](./nts.md) to the server and reference it in the
-source. The daemon needs the clock-setting capability to discipline the
-clock when it runs as a service.
-
-Use the following OpenRC service as `/etc/init.d/ntpd-rs`:
-
-```sh
-#!/sbin/openrc-run
-
-description="ntpd-rs network time daemon"
-command="/usr/bin/ntp-daemon"
-command_args="-c /etc/ntpd-rs/ntp.toml"
-pidfile="/run/ntpd-rs/ntp-daemon.pid"
-command_background=true
-
-depend() {
-	need net
-	after firewall
-}
-
-start_pre() {
-	checkpath --directory --owner ntpd-rs:ntpd-rs --mode 0755 /var/run/ntpd-rs
-	checkpath --file --owner ntpd-rs:ntpd-rs --mode 0644 /etc/ntpd-rs/ntp.toml
-}
-```
-
-Create the service user, stop any competing clock daemon first (Alpine
-ships BusyBox `ntpd` by default), then start and enable the service:
-
-```sh
-sudo addgroup -S ntpd-rs
-sudo adduser -S -h /var/lib/ntpd-rs -G ntpd-rs ntpd-rs
-sudo chown ntpd-rs:ntpd-rs /etc/ntpd-rs/ntp.toml
-sudo chmod 0644 /etc/ntpd-rs/ntp.toml
-sudo rc-service ntpd stop
-sudo rc-update del ntpd
-sudo rc-service ntpd-rs start
-sudo rc-update add ntpd-rs default
-sudo rc-service ntpd-rs status
-sudo ntp-ctl status
-```
+The first Graviola call panics if the CPU lacks required features.
+On x86_64 those are `aes`, `pclmulqdq`, `bmi1`, `adx`, `avx`, and `avx2`.
+On AArch64 they are `aes`, `sha2`, `pmull`, and `neon`.
 
 #### FreeBSD
 

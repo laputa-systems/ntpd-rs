@@ -111,9 +111,6 @@ RUN host_libdir="$(rustc --print target-libdir)" \
     && ln -sf /usr/lib/libgcc_s.so.1 "$host_libdir/libgcc_s.so.1" \
     && ln -sf /usr/lib/libc.so "$host_libdir/libc.so"
 
-# Keep musl linker, CRT, and loader flags in the image. The prerelease
-# workflow selects only static or test mode through this wrapper, so the same
-# release commands work on both container architectures.
 RUN cat > /usr/local/bin/musl-cargo <<'EOF' \
     && chmod +x /usr/local/bin/musl-cargo
 #!/bin/sh
