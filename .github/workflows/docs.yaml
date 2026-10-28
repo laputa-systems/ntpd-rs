@@ -24,7 +24,7 @@ jobs:
 
       - name: Setup git for modifying docs
         run: |
-          git fetch origin gh-pages --depth=1
+          git fetch origin gh-pages --depth=1 || echo "gh-pages branch does not exist yet"
           git config user.name ci-bot
           git config user.email no-reply@trifectatech.org
 
@@ -42,7 +42,11 @@ jobs:
       - name: Generate patch for docs
         run: |
           git checkout gh-pages
-          git format-patch --stdout origin/gh-pages > docs.patch
+          if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+            git format-patch --stdout origin/gh-pages > docs.patch
+          else
+            git format-patch --stdout --root HEAD > docs.patch
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -60,7 +64,6 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: gh-pages
           persist-credentials: true
       
       - name: Download artifacts
@@ -72,5 +75,13 @@ jobs:
         run: |
           git config user.name ci-bot
           git config user.email no-reply@trifectatech.org
-          test ! -s docs.patch || git am docs.patch
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages --depth=1
+            git checkout gh-pages
+            test ! -s docs.patch || git am docs.patch
+          else
+            git checkout --orphan gh-pages
+            git rm -q -rf .
+            test ! -s docs.patch || git am docs.patch
+          fi
           git push origin gh-pages
