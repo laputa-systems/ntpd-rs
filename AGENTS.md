@@ -45,10 +45,11 @@ That gap is `TODO.md` NTPD-1.
 
 ## Build and prereleases
 
-- MSRV is Rust 1.95 (`Cargo.toml` `rust-version`). The release compiler is
-  1.99.1 in both `rust-toolchain.toml` and
-  `.rust-toolchain/stable/rust-toolchain.toml`. The macOS prerelease job
-  hardcodes that same channel (`NTPD-2`).
+- MSRV is Rust 1.95 (`Cargo.toml` `rust-version`). The release compiler
+  channel lives only in `.rust-toolchain/stable/rust-toolchain.toml`.
+  `rust-toolchain.toml` is a symlink to it, the macOS prerelease job reads
+  it via `.rust-toolchain/set-rust-versions.sh`, and the Linux image parses
+  it in the `Dockerfile`.
 - CI rejects `aws-lc-rs`, `aws-lc-sys`, `ring`, `openssl`, and `openssl-sys`
   on the Graviola musl graph (`.github/workflows/checks.yaml`). Locally:
   `cargo tree --locked --prefix none -p ntpd --target x86_64-unknown-linux-musl --no-default-features --features graviola,rustcrypto --edges normal,build`.

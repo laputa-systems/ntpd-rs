@@ -83,11 +83,13 @@ jobs:
           tags: ntpd-rs:${{ matrix.target }}
           cache-from: type=gha,scope=ntpd-rs-${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=ntpd-rs-${{ matrix.target }}
+      - name: Determine used Rust toolchain versions
+        run: ./.rust-toolchain/set-rust-versions.sh
       - name: Install Rust toolchain
         if: matrix.docker_platform == ''
         run: |
-          rustup toolchain install 1.99.1 --profile minimal --component rust-src
-          rustup default 1.99.1
+          rustup toolchain install "$STABLE_RUST_VERSION" --profile minimal --component rust-src
+          rustup default "$STABLE_RUST_VERSION"
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: matrix.docker_platform == ''
         with:

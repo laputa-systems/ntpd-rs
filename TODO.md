@@ -11,11 +11,3 @@ Next: 3
 - **Effort:** M
 - **Design:** `docs/rfc/NTPD-1-daemon-not-operational.md`
 
-### NTPD-2 · P3 · release compiler channel is stored in three places
-
-- **Area:** Build
-- **Where:** `rust-toolchain.toml:2`, `.rust-toolchain/stable/rust-toolchain.toml:2`, `.github/workflows/prerelease.yml:89`
-- **Problem:** The Linux image reads `.rust-toolchain/stable/rust-toolchain.toml`. The macOS prerelease job installs a hardcoded `1.99.1`. The repo root `rust-toolchain.toml` is a third copy. All three say `1.99.1` today. The next bump that edits one of them ships macOS and Linux binaries from different compilers, and local `cargo` follows the root file rather than the image.
-- **Recommendation:** Make the macOS job and the root file take the channel from `.rust-toolchain/stable/rust-toolchain.toml`, which the image already parses.
-- **Fix with:** single-source-of-truth
-- **Effort:** S
